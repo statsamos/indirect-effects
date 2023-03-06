@@ -10,6 +10,7 @@ Imports System.Xml
 <System.ComponentModel.Composition.Export(GetType(Amos.IPlugin))>
 Public Class CustomCode
     Implements IPlugin
+    Public isDebug As Boolean = False
 
     'This plugin was written January 2018 by John Lim for James Gaskin.
     'This plugin was updated 2022 by Joseph Steed
@@ -36,6 +37,43 @@ Public Class CustomCode
 
     End Function
 
+    ' This takes in the path list for an indirect effect, grabs all of the standard regression weights, and multiplies them together for each path and returns the final value calculcated effect.
+    Function getStandardizedIndirectEffectForPath(paths As String(), tableStandardizedRegression As XmlElement, numRegression As Integer) As Double
+
+        'I dim a value: standardizedIndirectEffect for the path (as double)
+        Dim standardizedIndirectEffect As Double
+        Dim theSize As Integer
+        theSize = paths.Length - 1
+        'grab each path standardized regression weight in the list (should be the number of paths minus one)
+        'for i in pathsArray length -1 (0 to 3 for a thing that has 4)
+        standardizedIndirectEffect = 1.0
+        Dim firstStrings(theSize) As String
+        Dim secondStrings(theSize) As String
+
+        For i = 0 To UBound(paths) - 1
+            firstStrings(i) = paths(i)
+            secondStrings(i) = paths(i + 1)
+        Next i
+        'MsgBox(ArrayToString(firstStrings) & " " & ArrayToString(secondStrings))
+
+        ' Iterate through the pairs array and multiply the standardized regression weight from each pair
+        For i = LBound(firstStrings, 1) To UBound(firstStrings, 1)
+            If isDebug Then
+                MsgBox(i)
+            End If
+            For y = 1 To numRegression 'Iterate through Standardized Regression Weights to match each path
+                If firstStrings(i) = MatrixName(tableStandardizedRegression, y, 2) And secondStrings(i) = MatrixName(tableStandardizedRegression, y, 0) Then
+                    Dim currentPath As Double = MatrixElement(tableStandardizedRegression, y, 3)
+                    standardizedIndirectEffect = standardizedIndirectEffect * currentPath 'Multiply standardized estimates with current path standardized estimates
+                End If
+            Next
+        Next
+
+        'multiply all of them together
+        Return standardizedIndirectEffect
+    End Function
+
+
     'Create the html output that combines standardized/unstandardized indirect effects.
     Sub CreateOutput()
 
@@ -43,7 +81,8 @@ Public Class CustomCode
 
         'Get regression weights, standardized regression weights, and user-defined estimands w/bootstrap confidence intervals xml tables from the output.
         Dim tableRegression As XmlElement = GetXML("body/div/div[@ntype='models']/div[@ntype='model'][position() = 1]/div[@ntype='group'][position() = 1]/div[@ntype='estimates']/div[@ntype='scalars']/div[@nodecaption='Regression Weights:']/table/tbody")
-        Dim tableStandardized As XmlElement = GetXML("body/div/div[@ntype='models']/div[@ntype='model'][position() = 1]/div[@ntype='group'][position() = 1]/div[@ntype='estimates']/div[@ntype='scalars']/div[@nodecaption='Standardized Regression Weights:']/table/tbody")
+        ' Standardized Regression Weights 
+        Dim tableStandardizedRegression As XmlElement = GetXML("body/div/div[@ntype='models']/div[@ntype='model'][position() = 1]/div[@ntype='group'][position() = 1]/div[@ntype='estimates']/div[@ntype='scalars']/div[@nodecaption='Standardized Regression Weights:']/table/tbody")
         Dim tableBootstrap As XmlElement = GetXML("body/div/div[@ntype='models']/div[@ntype='model'][position() = 1]/div[@ntype='group'][position() = 1]/div[@ntype='bootstrap']/div[@ntype='bootstrapconfidence']/div[@ntype='biascorrected']/div[@ntype='scalars']/div[@nodecaption='User-defined estimands:']/table/tbody")
         Dim numRegression As Integer = GetNodeCount(tableRegression)
         Dim numBootstrap As Integer = GetNodeCount(tableBootstrap)
@@ -51,18 +90,22 @@ Public Class CustomCode
 
         For x = 1 To numBootstrap 'Iterate through the table of bootstrap estimates.
             Dim paths As String() = Strings.Split(MatrixName(tableBootstrap, x, 0), " --> ") 'Split variable names into array.
-            For y = 1 To numRegression 'Iterate through Standardized Regression Weights to match first path.
-                If paths(0) = MatrixName(tableStandardized, y, 2) And paths(1) = MatrixName(tableStandardized, y, 0) Then
-                    Dim firstPath As Double = MatrixElement(tableStandardized, y, 3)
-                    For z = 1 To numRegression 'Iterate through Standardized Regression Weights again to match second path.
-                        If paths(1) = MatrixName(tableStandardized, z, 2) And paths(2) = MatrixName(tableStandardized, z, 0) Then
-                            Dim secondPath As Double = MatrixElement(tableStandardized, z, 3)
-                            standardizedIndirectEffects(x - 1) = firstPath * secondPath 'Multiply standardized estimates together to get indirect effect
-                        End If
-                    Next
-                End If
-            Next
+            standardizedIndirectEffects(x - 1) = getStandardizedIndirectEffectForPath(paths, tableStandardizedRegression, numRegression)
+            'For y = 1 To numRegression 'Iterate through Standardized Regression Weights to match first path.
+            ' If paths(0) = MatrixName(tableStandardizedRegression, y, 2) And paths(1) = MatrixName(tableStandardizedRegression, y, 0) Then
+            ' Dim firstPath As Double = MatrixElement(tableStandardizedRegression, y, 3)
+            ' For z = 1 To numRegression 'Iterate through Standardized Regression Weights again to match second path.
+            ' If paths(1) = MatrixName(tableStandardizedRegression, z, 2) And paths(2) = MatrixName(tableStandardizedRegression, z, 0) Then
+            ' Dim secondPath As Double = MatrixElement(tableStandardizedRegression, z, 3)
+            ' MsgBox("firstPath: " & firstPath & "; secondPath: " & secondPath & "; MatrixName(tableBootstrap, x, 0): " & MatrixName(tableBootstrap, x, 0) & "; paths: " & ArrayToString(paths) & "; MatrixName(tableStandardizedRegression, z, 2): " & MatrixName(tableStandardizedRegression, z, 2) & "; MatrixName(tableStandardized, y, 2): " & MatrixName(tableStandardizedRegression, y, 2) & "; MatrixName(tableStandardized, y, 0): " & MatrixName(tableStandardizedRegression, y, 0))
+            ' standardizedIndirectEffects(x - 1) = firstPath * secondPath 'Multiply standardized estimates together to get indirect effect
+            ' End If
+            ' Next
+            '     End If
+            'Next
+
         Next
+
 
         'Delete the output file if it exists
         If (System.IO.File.Exists("IndirectEffects.html")) Then
@@ -76,6 +119,17 @@ Public Class CustomCode
         Trace.Listeners.Add(resultWriter)
 
         debug.PrintX("<html><body><h1>Indirect Effects</h1><hr/>")
+        If isDebug Then
+
+            debug.PrintX("<br>")
+            debug.PrintX("<br>")
+            debug.PrintX(tableBootstrap.ToString())
+            debug.PrintX("<br>")
+            debug.PrintX(ArrayToString(standardizedIndirectEffects))
+            debug.PrintX("<br>")
+        End If
+        debug.PrintX("<br>")
+        debug.PrintX("<br>")
 
         'Populate model fit measures in data table
         debug.PrintX("<table><tr><th>Indirect Path</th><th>Unstandardized Estimate</th><th>Lower</th><th>Upper</th><th>P-Value</th><th>Standardized Estimate</th></tr><tr>")
@@ -205,6 +259,41 @@ Public Class CustomCode
             End If
         Next
     End Sub
+
+    Function ArrayToString(arr() As Double) As String
+        Dim str As String
+        Dim i As Integer
+
+        ' Loop through the array and add each element to the string with a comma separator
+        For i = LBound(arr) To UBound(arr)
+            str = str & arr(i) & "<br>"
+        Next i
+
+        ' Remove the last comma from the string
+        If Len(str) > 0 Then
+            str = Left(str, Len(str) - 1)
+        End If
+
+        ArrayToString = str
+    End Function
+
+    Function ArrayToString(arr() As String) As String
+        Dim str As String
+        Dim i As Integer
+
+        ' Loop through the array and add each element to the string with a comma separator
+        For i = LBound(arr) To UBound(arr)
+            str = str & arr(i) & "<br>"
+        Next i
+
+        ' Remove the last comma from the string
+        If Len(str) > 0 Then
+            str = Left(str, Len(str) - 1)
+        End If
+
+        ArrayToString = str
+    End Function
+
 
 End Class
 
